@@ -1,0 +1,27 @@
+# Video files (don't commit large binaries to git)
+*.mp4
+*.avi
+*.mov
+
+# Runtime directories
+uploads/
+outputs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# YOLO weights (downloaded automatically)
+*.pt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

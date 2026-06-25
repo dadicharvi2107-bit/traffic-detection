@@ -1,28 +1,36 @@
-# AI-Powered-Traffic-Queue-Analysis-and-Rule-Violation-Detection-using-Video-Analytics
-A technology-driven project proposal developed for the NETRIK National Hackathon with real-world application focus.
-# NETRIK National Hackathon – Project Proposal
+# 🚦 AI-Powered Traffic Queue Analysis & Violation Detection
 
-## 💡 Proposed Solution
-The project addresses the growing challenge of traffic congestion and frequent rule violations at urban intersections, which are difficult to monitor manually and often lead to accidents, delays, and inefficient traffic management.
-The proposed solution uses AI-powered video analytics to automatically analyze CCTV footage and detect vehicles, track their movement, and identify traffic rule violations such as signal jumping, wrong-way driving, illegal parking, and lane violations. By leveraging deep learning–based object detection and multi-object tracking, the system converts raw video streams into structured, actionable traffic insights.
-The motivation behind this solution is to reduce dependence on manual monitoring, improve road safety, and enable data-driven traffic management in smart cities. Existing traffic systems often lack real-time analytics and scalability; this approach offers a cost-effective upgrade by utilizing already installed surveillance infrastructure.
-The primary users of the system include traffic police departments, municipal authorities, and smart city administrators. The solution helps them by providing annotated video outputs, violation counts, traffic density metrics, and dashboard-based visualizations, leading to faster decision-making, improved enforcement efficiency, and ultimately safer and more organized roads.
+A computer vision system that analyzes traffic camera footage to detect
+vehicles, track them across frames, estimate queue lengths, and flag
+rule violations — all displayed through an interactive Streamlit dashboard.
 
-## 🎥 Project Explanation Video
-YouTube link explaining the idea and approach:  
-👉 https://youtu.be/rWC4s6V5D-s
+![Python](https://img.shields.io/badge/Python-3.9+-blue)
+![YOLOv8](https://img.shields.io/badge/YOLO-v8-orange)
+![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red)
 
-## 📄 Project Proposal Document
-The detailed project proposal is provided in the PDF file in this repository.
+## Demo
 
-## 🛠️ Proposed Tech Stack
-- Programming Language(s): Python 
-- Frameworks: Streamlit / YOLO / Pandas / openCV / Python OS Library
-- Tools: GitHub, YouTube
+> 📹 [Watch the demo video on YouTube](YOUR_YOUTUBE_LINK_HERE)
 
-## 👥 Team Details
-- Team Name:  
-- Member 1  Geya Sahithya Kolli
-- Member 2  Charvi Sri Dadi
-- Member 3  Nandini Sreenivas Konjety
-- Member 4  Nehaa Jakkampudi
+<!-- Add a GIF or screenshot here -->
+<!-- ![Dashboard Screenshot](docs/dashboard_screenshot.png) -->
+
+## Features
+
+- **Vehicle Detection** — YOLOv8 detects cars, motorcycles, buses, and
+  trucks, filtering out non-vehicle objects.
+- **Multi-Object Tracking** — Deep SORT maintains unique IDs across
+  frames so each vehicle is counted once.
+- **Traffic Signal Detection** — HSV colour thresholding reads the actual
+  traffic light state (red / green / yellow) from the video frame.
+- **Queue Estimation** — Vehicles that remain stationary for multiple
+  consecutive frames are classified as "queued."
+- **Red-Light Violation Detection** — Vehicles crossing the stop line
+  while the detected signal is red are flagged.
+- **Rash Driving Detection** — Smoothed per-vehicle speed estimation
+  flags abnormally fast movement.
+- **Interactive Dashboard** — Streamlit app with real-time KPIs,
+  traffic flow charts, violation logs, and CSV report downloads.
+
+## Architecture
+
