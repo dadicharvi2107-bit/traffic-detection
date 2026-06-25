@@ -59,16 +59,17 @@ output_csv = "outputs/traffic_data.csv"
 with open(input_path, "wb") as f:
     f.write(uploaded_file.read())
 
-# ── Processing ───────────────────────────────────────────────────────────────
+#── Processing ───────────────────────────────────────────────────────────────
 if "processed" not in st.session_state or st.sidebar.button("🔄 Re‑process Video"):
+    progress_bar = st.progress(0.0)
     with st.spinner("Running YOLO + Deep SORT pipeline..."):
         process_video(
-            input_path,
-            output_video,
-            output_csv,
+            input_path, output_video, output_csv,
             traffic_light_roi=traffic_light_roi,
             frame_skip=frame_skip,
+            progress_callback=lambda p: progress_bar.progress(p),
         )
+    progress_bar.empty()
     st.session_state.processed = True
     st.success("✅ Processing complete!")
 
