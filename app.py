@@ -59,19 +59,314 @@ output_csv = "outputs/traffic_data.csv"
 with open(input_path, "wb") as f:
     f.write(uploaded_file.read())
 
-#── Processing ───────────────────────────────────────────────────────────────
+# ── Processing ───────────────────────────────────────────────────────────────
+# ── Processing ───────────────────────────────────────────────────────────────
 if "processed" not in st.session_state or st.sidebar.button("🔄 Re‑process Video"):
-    progress_bar = st.progress(0.0)
     with st.spinner("Running YOLO + Deep SORT pipeline..."):
-        process_video(
-            input_path, output_video, output_csv,
-            traffic_light_roi=traffic_light_roi,
-            frame_skip=frame_skip,
-            progress_callback=lambda p: progress_bar.progress(p),
-        )
-    progress_bar.empty()
-    st.session_state.processed = True
-    st.success("✅ Processing complete!")
+        try:
+            process_video(
+                input_path,
+                output_video,
+                output_csv,
+                traffic_light_roi=traffic_light_roi,
+                frame_skip=frame_skip,
+            )
+        except Exception as e:
+            st.error(f"❌ Processing failed: {e}")
+            st.stop()
+    
+    # ← ADD THIS DEBUG BLOCK
+    if os.path.exists(output_video):
+        st.success("✅ Processing complete!")
+        st.session_state.processed = True
+    else:
+        st.error(f"⚠️ Output video not created. Check terminal for errors.")
+        st.write(f"Expected at: {output_video}")
+        st.stop()essing complete!")
+
+# ── Evaluation Section ──────────────────────────────────────────────────────
+import pandas as pd
+import numpy as np
+from collections import defaultdict
+
+def analyze_tracking(df):
+    """Analyze tracking quality"""
+    track_lengths = df.groupby('vehicle_id').size()
+    return {
+        'avg_track_length': track_lengths.mean(),
+        'max_track_length': track_lengths.max(),
+        'min_track_length': track_lengths.min(),
+        'short_tracks': (track_lengths < 5).sum(),
+        'long_tracks': (track_lengths > 50).sum()
+    }
+
+def iou(box1, box2):
+    """Calculate Intersection over Union"""
+    intersection = (
+        max(0, min(box1['x2'], box2['x2']) - max(box1['x1'], box2['x1'])) *
+        max(0, min(box1['y2'], box2['y2']) - max(box1['y1'], box2['y1']))
+    )
+    union = (
+        (box1['x2'] - box1['x1']) * (box1['y2'] - box1['y1']) +
+        (box2['x2'] - box2['x1']) * (box2['y2'] - box2['y1']) - intersection
+    )
+    return intersection / union if union > 0 else 0
+
+def evaluate_with_ground_truth(pred_df, gt_df):
+    """Compare predictions with annotated ground truth"""
+    tp, fp, fn = 0, 0, 0
+
+    for frame_id in pred_df['frame_id'].unique():
+        pred_frame = pred_df[pred_df['frame_id'] == frame_id]
+        gt_frame = gt_df[gt_df['frame_id'] == frame_id]
+
+        matched = 0
+        for _, pred in pred_frame.iterrows():
+            for _, gt in gt_frame.iterrows():
+                if iou(pred, gt) > 0.5:
+                    matched += 1
+                    tp += 1
+                    break
+
+        fp += len(pred_frame) - matched
+        fn += max(0, len(gt_frame) - matched)
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+    return {"precision": precision, "recall": recall, "f1": f1, "tp": tp, "fp": fp, "fn": fn}
+
+
+# ── Streamlit Evaluation Dashboard ──────────────────────────────────────────
+
+st.markdown("---")
+st.header("📊 Project Evaluation Dashboard")
+
+# Load detection results
+df = pd.read_csv(output_csv)
+
+if df.empty:
+    st.warning("No detections found. Cannot evaluate.")
+    st.stop()
+
+# ── Tab Layout ──────────────────────────────────────────────────────────────
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Basic Stats",
+    "🎯 Confidence",
+    "🔄 Tracking Quality",
+    "🚦 Traffic Light",
+    "✔️ Ground Truth"
+])
+
+# ── TAB 1: Basic Statistics ─────────────────────────────────────────────────
+with tab1:
+    st.subheader("📊 Detection Statistics")
+
+    total_frames = df['frame_id'].max() + 1
+    total_detections = len(df)
+    unique_vehicles = df['vehicle_id'].nunique()
+    avg_per_frame = total_detections / total_frames
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Frames", f"{total_frames:,}")
+    col2.metric("Total Detections", f"{total_detections:,}")
+    col3.metric("Unique Vehicles", f"{unique_vehicles:,}")
+    col4.metric("Avg Detections/Frame", f"{avg_per_frame:.2f}")
+
+    # Frame-by-frame analysis
+    st.subheader("📹 Frame Analysis")
+    frame_counts = df.groupby('frame_id').size()
+    frames_with_det = len(frame_counts)
+    frames_without_det = total_frames - frames_with_det
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Frames with Detections", frames_with_det)
+    col2.metric("Frames without Detections", frames_without_det)
+    col3.metric("Max Detections in 1 Frame", frame_counts.max())
+
+    # Detections over time chart
+    st.subheader("📈 Detections Over Time")
+    st.line_chart(frame_counts, use_container_width=True)
+
+    # Vehicle type distribution
+    if 'class_name' in df.columns:
+        st.subheader("🚗 Vehicle Type Distribution")
+        vehicle_counts = df['class_name'].value_counts()
+        st.bar_chart(vehicle_counts, use_container_width=True)
+
+# ── TAB 2: Confidence Analysis ──────────────────────────────────────────────
+with tab2:
+    st.subheader("🎯 Confidence Score Analysis")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Mean Confidence", f"{df['confidence'].mean():.4f}")
+    col2.metric("Min Confidence", f"{df['confidence'].min():.4f}")
+    col3.metric("Max Confidence", f"{df['confidence'].max():.4f}")
+
+    col1, col2 = st.columns(2)
+    col1.metric("Detections ≥ 0.5", f"{(df['confidence'] >= 0.5).sum():,}")
+    col2.metric("Detections ≥ 0.8", f"{(df['confidence'] >= 0.8).sum():,}")
+
+    # Confidence distribution histogram
+    st.subheader("📊 Confidence Distribution")
+    hist_data = pd.cut(df['confidence'], bins=10).value_counts().sort_index()
+    st.bar_chart(hist_data, use_container_width=True)
+
+    # Quality rating
+    mean_conf = df['confidence'].mean()
+    if mean_conf >= 0.80:
+        st.success(f"🟢 Excellent! Mean confidence {mean_conf:.2f} is above 0.80")
+    elif mean_conf >= 0.70:
+        st.info(f"🟡 Good. Mean confidence {mean_conf:.2f} is above 0.70")
+    else:
+        st.warning(f"🔴 Needs improvement. Mean confidence {mean_conf:.2f} is below 0.70")
+
+# ── TAB 3: Tracking Quality ─────────────────────────────────────────────────
+with tab3:
+    st.subheader("🔄 Deep SORT Tracking Quality")
+
+    tracking = analyze_tracking(df)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Avg Track Length", f"{tracking['avg_track_length']:.1f} frames")
+    col2.metric("Longest Track", f"{tracking['max_track_length']} frames")
+    col3.metric("Shortest Track", f"{tracking['min_track_length']} frames")
+
+    col1, col2 = st.columns(2)
+    col1.metric("Short Tracks (<5 frames)", tracking['short_tracks'],
+                help="High number = IDs switching frequently")
+    col2.metric("Long Tracks (>50 frames)", tracking['long_tracks'],
+                help="High number = stable tracking")
+
+    # Track length distribution
+    st.subheader("📊 Track Length Distribution")
+    track_lengths = df.groupby('vehicle_id').size().reset_index(name='length')
+    st.bar_chart(track_lengths.set_index('vehicle_id')['length'], use_container_width=True)
+
+    # Quality rating
+    short_ratio = tracking['short_tracks'] / df['vehicle_id'].nunique()
+    if short_ratio < 0.1:
+        st.success(f"🟢 Excellent! Only {short_ratio:.0%} short tracks. Tracking is very stable.")
+    elif short_ratio < 0.3:
+        st.info(f"🟡 Good. {short_ratio:.0%} short tracks. Tracking is fairly stable.")
+    else:
+        st.warning(f"🔴 Needs improvement. {short_ratio:.0%} short tracks. IDs may be switching too often.")
+
+# ── TAB 4: Traffic Light ────────────────────────────────────────────────────
+with tab4:
+    st.subheader("🚦 Traffic Light Detection")
+
+    if 'traffic_light_state' in df.columns:
+        state_counts = df['traffic_light_state'].value_counts()
+
+        cols = st.columns(len(state_counts))
+        for i, (state, count) in enumerate(state_counts.items()):
+            cols[i].metric(f"{state}", f"{count:,}")
+
+        st.bar_chart(state_counts, use_container_width=True)
+    else:
+        st.info("No traffic light state column found in CSV. "
+                "Make sure your pipeline outputs 'traffic_light_state' in the CSV.")
+
+# ── TAB 5: Ground Truth Comparison ──────────────────────────────────────────
+with tab5:
+    st.subheader("✔️ Ground Truth Comparison")
+    st.markdown("""
+    Upload a **ground truth CSV** with the same format as your output CSV 
+    (columns: `frame_id`, `x1`, `y1`, `x2`, `y2`) to compare accuracy.
+    """)
+
+    gt_file = st.file_uploader("Upload Ground Truth CSV", type=["csv"])
+
+    if gt_file is not None:
+        gt_df = pd.read_csv(gt_file)
+        st.write("Ground Truth Preview:")
+        st.dataframe(gt_df.head(10))
+
+        if st.button("🔍 Evaluate Accuracy"):
+            with st.spinner("Calculating metrics..."):
+                results = evaluate_with_ground_truth(df, gt_df)
+
+            st.markdown("### 📊 Results")
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Precision", f"{results['precision']:.2%}")
+            col2.metric("Recall", f"{results['recall']:.2%}")
+            col3.metric("F1-Score", f"{results['f1']:.2%}")
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("True Positives", results['tp'])
+            col2.metric("False Positives", results['fp'])
+            col3.metric("False Negatives", results['fn'])
+
+            # Quality rating
+            if results['f1'] >= 0.85:
+                st.success("🟢 Excellent! F1-Score is above 85%")
+            elif results['f1'] >= 0.70:
+                st.info("🟡 Good. F1-Score is above 70%")
+            else:
+                st.warning("🔴 Needs improvement. F1-Score is below 70%")
+
+            # Detailed breakdown
+            st.markdown("### 📋 What These Metrics Mean")
+            st.markdown(f"""
+            | Metric | Value | Meaning |
+            |--------|-------|---------|
+            | **Precision** | {results['precision']:.2%} | Of all detections, how many were correct |
+            | **Recall** | {results['recall']:.2%} | Of all actual vehicles, how many were found |
+            | **F1-Score** | {results['f1']:.2%} | Balance between Precision and Recall |
+            """)
+    else:
+        st.info("💡 **No ground truth?** You can still evaluate using the other tabs. "
+                "For ground truth, manually annotate 50-100 frames using tools like "
+                "[CVAT](https://cvat.ai) or [LabelImg](https://github.com/heartexlabs/labelImg).")
+
+
+# ── Overall Summary ─────────────────────────────────────────────────────────
+st.markdown("---")
+st.header("🏆 Overall Project Health")
+
+mean_conf = df['confidence'].mean()
+tracking = analyze_tracking(df)
+short_ratio = tracking['short_tracks'] / df['vehicle_id'].nunique()
+
+scores = []
+
+# Detection score
+if mean_conf >= 0.80:
+    scores.append(("Detection Quality", "🟢 Excellent", mean_conf))
+elif mean_conf >= 0.70:
+    scores.append(("Detection Quality", "🟡 Good", mean_conf))
+else:
+    scores.append(("Detection Quality", "🔴 Needs Work", mean_conf))
+
+# Tracking score
+if short_ratio < 0.1:
+    scores.append(("Tracking Stability", "🟢 Excellent", 1 - short_ratio))
+elif short_ratio < 0.3:
+    scores.append(("Tracking Stability", "🟡 Good", 1 - short_ratio))
+else:
+    scores.append(("Tracking Stability", "🔴 Needs Work", 1 - short_ratio))
+
+# Coverage score
+coverage = len(df.groupby('frame_id').size()) / (df['frame_id'].max() + 1)
+if coverage >= 0.9:
+    scores.append(("Frame Coverage", "🟢 Excellent", coverage))
+elif coverage >= 0.7:
+    scores.append(("Frame Coverage", "🟡 Good", coverage))
+else:
+    scores.append(("Frame Coverage", "🔴 Needs Work", coverage))
+
+# Display
+cols = st.columns(3)
+for i, (name, status, score) in enumerate(scores):
+    cols[i].metric(name, status, f"{score:.2%}")
+
+# Overall score
+overall = np.mean([s[2] for s in scores])
+st.progress(overall)
+st.markdown(f"### Overall Score: **{overall:.0%}**")
 
 # ── Load Data ────────────────────────────────────────────────────────────────
 df = pd.read_csv(output_csv)

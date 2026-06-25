@@ -146,14 +146,29 @@ def process_video(input_path, output_video_path, output_csv_path,
             int(rx2 * scale_x), int(ry2 * scale_y),
         )
 
+# OLD (might fail):
+    # NEW - try multiple codecs:
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(
         output_video_path,
-        cv2.VideoWriter_fourcc(*"mp4v"),
+        fourcc,
         max(1, fps // frame_skip),
         (PROC_W, PROC_H),
     )
 
-    # ── SPEED FIX: lighter tracker, GPU embedder if available ──
+    if not out.isOpened():
+        print(f"[processor] WARNING: mp4v codec failed, trying H264", flush=True)
+        fourcc = cv2.VideoWriter_fourcc(*"H264")
+        out = cv2.VideoWriter(
+            output_video_path,
+            fourcc,
+            max(1, fps // frame_skip),
+            (PROC_W, PROC_H),
+        )
+
+    if not out.isOpened():
+        raise RuntimeError("VideoWriter failed with both mp4v and H264 codecs")
+        # ── SPEED FIX: lighter tracker, GPU embedder if available ──
     tracker = DeepSort(
         max_age=30,
         n_init=3,
